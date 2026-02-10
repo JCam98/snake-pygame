@@ -16,6 +16,7 @@ import array
 import io
 import re
 import urllib.request
+from typing import Optional
 
 # Optional: pygame for background music and sound effects
 try:
@@ -55,8 +56,15 @@ BACKGROUND_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".sn
 FALLBACK_BG_URL = "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600"
 
 
-def _fetch_background_image_url(article_url):
-    """Fetch article HTML and return og:image or first content image URL, or None."""
+def _fetch_background_image_url(article_url: str) -> Optional[str]:
+    """Fetch article HTML and return og:image or first content image URL, or None.
+
+    Args:
+        article_url (str): URL of the HTML page to fetch and parse for an image.
+
+    Returns:
+        str | None: Absolute URL of the first suitable image found, or None on failure.
+    """
     try:
         req = urllib.request.Request(article_url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -83,8 +91,17 @@ def _fetch_background_image_url(article_url):
     return None
 
 
-def _download_background_image(target_path, width, height):
-    """Download background image from article or fallback; save to target_path. Returns True if saved."""
+def _download_background_image(target_path: str, width: int, height: int) -> bool:
+    """Download background image from article or fallback; save to target_path.
+
+    Args:
+        target_path (str): File path where the image will be saved (e.g. JPEG).
+        width (int): Desired image width in pixels (used when Pillow is available).
+        height (int): Desired image height in pixels (used when Pillow is available).
+
+    Returns:
+        bool: True if the image was successfully downloaded and saved, False otherwise.
+    """
     url = _fetch_background_image_url(BACKGROUND_ARTICLE_URL)
     if not url:
         url = FALLBACK_BG_URL
@@ -119,8 +136,12 @@ def _download_background_image(target_path, width, height):
     return False
 
 
-def load_high_score():
-    """Load high score from file. Returns 0 if missing or invalid."""
+def load_high_score() -> int:
+    """Load high score from file.
+
+    Returns:
+        int: The saved high score, or 0 if the file is missing or invalid.
+    """
     try:
         if os.path.isfile(HIGH_SCORE_FILE):
             with open(HIGH_SCORE_FILE, "r") as f:
@@ -130,8 +151,15 @@ def load_high_score():
     return 0
 
 
-def save_high_score(score):
-    """Save high score to file."""
+def save_high_score(score: int) -> None:
+    """Save high score to file.
+
+    Args:
+        score (int): The high score value to persist.
+
+    Returns:
+        None
+    """
     try:
         with open(HIGH_SCORE_FILE, "w") as f:
             f.write(str(score))
@@ -142,7 +170,12 @@ def save_high_score(score):
 class GameAudio:
     """Background music and sound effects using pygame. No-op if pygame unavailable."""
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """Initialize the audio subsystem and generate procedural music and SFX.
+
+        Returns:
+            None
+        """
         self.music_playing = False
         self.sounds = {}
         if not PYGAME_AVAILABLE:
@@ -154,8 +187,14 @@ class GameAudio:
         except Exception:
             pass
 
-    def _make_music(self):
-        """Generate a short looping ambient tune (chord progression)."""
+    def _make_music(self) -> None:
+        """Generate a short looping ambient tune (chord progression).
+
+        Populates self.bg_sound with a pygame Sound, or sets it to None on failure.
+
+        Returns:
+            None
+        """
         try:
             duration_sec = 4.0
             n_samples = int(SAMPLE_RATE * duration_sec)
@@ -170,8 +209,14 @@ class GameAudio:
         except Exception:
             self.bg_sound = None
 
-    def _make_sounds(self):
-        """Generate eat and game-over sounds."""
+    def _make_sounds(self) -> None:
+        """Generate eat and game-over sounds.
+
+        Populates self.sounds with 'eat' and 'game_over' pygame Sound objects, or clears on failure.
+
+        Returns:
+            None
+        """
         try:
             n = int(SAMPLE_RATE * 0.12)
             t = [i / SAMPLE_RATE for i in range(n)]
@@ -187,7 +232,12 @@ class GameAudio:
         except Exception:
             self.sounds.clear()
 
-    def start_music(self):
+    def start_music(self) -> None:
+        """Start looping background music (no-op if pygame or bg_sound unavailable).
+
+        Returns:
+            None
+        """
         if not PYGAME_AVAILABLE or not getattr(self, "bg_sound", None):
             return
         try:
@@ -196,7 +246,12 @@ class GameAudio:
         except Exception:
             pass
 
-    def stop_music(self):
+    def stop_music(self) -> None:
+        """Stop all pygame mixer playback (no-op if pygame unavailable).
+
+        Returns:
+            None
+        """
         if not PYGAME_AVAILABLE:
             return
         try:
@@ -205,7 +260,12 @@ class GameAudio:
         except Exception:
             pass
 
-    def play_eat(self):
+    def play_eat(self) -> None:
+        """Play the eat-food sound effect (no-op if pygame or sound unavailable).
+
+        Returns:
+            None
+        """
         if not PYGAME_AVAILABLE or "eat" not in self.sounds:
             return
         try:
@@ -213,7 +273,12 @@ class GameAudio:
         except Exception:
             pass
 
-    def play_game_over(self):
+    def play_game_over(self) -> None:
+        """Play the game-over sound effect (no-op if pygame or sound unavailable).
+
+        Returns:
+            None
+        """
         if not PYGAME_AVAILABLE or "game_over" not in self.sounds:
             return
         try:
@@ -223,7 +288,14 @@ class GameAudio:
 
 
 class SnakeGame:
-    def __init__(self):
+    """Main game window and loop: tkinter GUI, snake state, and input handling."""
+
+    def __init__(self) -> None:
+        """Create the main window, canvas, labels, and start the game loop.
+
+        Returns:
+            None
+        """
         self.root = tk.Tk()
         self.root.title("Snake Game")
         self.root.resizable(False, False)
@@ -307,8 +379,12 @@ class SnakeGame:
         self.draw()
         self.root.mainloop()
 
-    def setup_game(self):
-        """Initialize or reset the game."""
+    def setup_game(self) -> None:
+        """Initialize or reset the game state (snake, direction, score, food, speed).
+
+        Returns:
+            None
+        """
         center_x = GRID_WIDTH // 2
         center_y = GRID_HEIGHT // 2
         self.snake = [
@@ -327,12 +403,21 @@ class SnakeGame:
         self._update_score_display()
         self.inst_label.config(text="Arrow keys • Pause: P • Restart: R or Space")
 
-    def _update_score_display(self):
+    def _update_score_display(self) -> None:
+        """Refresh the on-screen score and high score label.
+
+        Returns:
+            None
+        """
         disp = f"Score: {self.score}  •  High Score: {self.high_score}"
         self.score_label.config(text=disp)
 
-    def draw_grid(self):
-        """Draw background image (if loaded), then grid and border."""
+    def draw_grid(self) -> None:
+        """Draw background image (if loaded), then grid lines and border on the canvas.
+
+        Returns:
+            None
+        """
         self.canvas.delete("all")
         if self.bg_photo:
             self.canvas.create_image(0, 0, anchor=tk.NW, image=self.bg_photo)
@@ -350,8 +435,12 @@ class SnakeGame:
             outline=ACCENT_COLOR, width=2
         )
 
-    def spawn_food(self):
-        """Place food at a random empty cell."""
+    def spawn_food(self) -> None:
+        """Place food at a random cell not occupied by the snake. Updates self.food.
+
+        Returns:
+            None
+        """
         while True:
             x = random.randint(0, GRID_WIDTH - 1)
             y = random.randint(0, GRID_HEIGHT - 1)
@@ -359,8 +448,20 @@ class SnakeGame:
                 self.food = (x, y)
                 break
 
-    def draw_cell(self, x, y, color, outline=None):
-        """Draw a filled cell at grid (x, y)."""
+    def draw_cell(
+        self, x: int, y: int, color: str, outline: Optional[str] = None
+    ) -> None:
+        """Draw a filled rectangle for one grid cell on the canvas.
+
+        Args:
+            x (int): Grid column (0-based).
+            y (int): Grid row (0-based).
+            color (str): Fill color (e.g. hex string).
+            outline (str | None): Outline color; defaults to color if None.
+
+        Returns:
+            None
+        """
         x1 = x * CELL_SIZE + 2
         y1 = y * CELL_SIZE + 2
         x2 = x1 + CELL_SIZE - 4
@@ -372,8 +473,12 @@ class SnakeGame:
             width=1,
         )
 
-    def draw(self):
-        """Draw snake, food, and game-over overlay."""
+    def draw(self) -> None:
+        """Redraw the full scene: grid, snake, food, and any game-over or pause overlay.
+
+        Returns:
+            None
+        """
         self.draw_grid()
         if self.game_over:
             self.canvas.create_text(
@@ -402,8 +507,12 @@ class SnakeGame:
             color = SNAKE_HEAD_COLOR if i == len(self.snake) - 1 else SNAKE_COLOR
             self.draw_cell(x, y, color)
 
-    def move_snake(self):
-        """Advance the snake and check collisions."""
+    def move_snake(self) -> None:
+        """Advance the snake one cell, handle food/wall/self collision, and schedule the next tick.
+
+        Returns:
+            None
+        """
         if self.game_over:
             self.draw()
             self.root.after(self.game_speed, self.move_snake)
@@ -474,8 +583,15 @@ class SnakeGame:
         self.draw()
         self.root.after(self.game_speed, self.move_snake)
 
-    def change_direction(self, new_dir):
-        """Update direction if not opposite to current."""
+    def change_direction(self, new_dir: str) -> None:
+        """Update movement direction if not opposite to current; may start the game and music.
+
+        Args:
+            new_dir (str): One of "Up", "Down", "Left", "Right".
+
+        Returns:
+            None
+        """
         opposites = {
             "Up": "Down",
             "Down": "Up",
@@ -489,8 +605,12 @@ class SnakeGame:
                 self.audio.start_music()
                 self.move_snake()
 
-    def toggle_pause(self):
-        """Toggle pause state."""
+    def toggle_pause(self) -> None:
+        """Toggle pause state and update the instruction label (no-op if game over or not started).
+
+        Returns:
+            None
+        """
         if self.game_over or not self.game_started:
             return
         self.paused = not self.paused
@@ -500,15 +620,23 @@ class SnakeGame:
             self.inst_label.config(text="Arrow keys • Pause: P • Restart: R or Space")
         self.draw()
 
-    def restart(self):
-        """Restart the game."""
+    def restart(self) -> None:
+        """Restart the game from initial state and resume the move loop.
+
+        Returns:
+            None
+        """
         self.game_started = False
         self.setup_game()
         self.draw()
         self.root.after(self.game_speed, self.move_snake)
 
-    def bind_keys(self):
-        """Bind keyboard keys."""
+    def bind_keys(self) -> None:
+        """Bind arrow keys, P (pause), R and Space (restart) to their handlers.
+
+        Returns:
+            None
+        """
         self.root.bind("<Up>", lambda e: self.change_direction("Up"))
         self.root.bind("<Down>", lambda e: self.change_direction("Down"))
         self.root.bind("<Left>", lambda e: self.change_direction("Left"))
