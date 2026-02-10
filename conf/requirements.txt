@@ -1,0 +1,4 @@
+# Optional: for background music and sound effects
+pygame>=2.1.0
+# Optional: for background image from article URL (game uses solid color without it)
+Pillow>=9.0.0
