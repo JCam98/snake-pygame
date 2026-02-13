@@ -15,14 +15,59 @@ import os
 import array
 import io
 import re
+import sys
+import platform
 import urllib.request
 from typing import Optional
 
+
+def _should_enable_pygame() -> bool:
+    """Determine whether importing pygame is safe and desired.
+
+    On some macOS versions, certain pygame/SDL wheels can abort the interpreter at import
+    time (not a Python exception). To keep the game playable (audio becomes a no-op), we
+    skip importing pygame unless it appears compatible.
+
+    Environment overrides:
+    - SNAKE_DISABLE_PYGAME=1: Always skip pygame import.
+    - SNAKE_ENABLE_PYGAME=1: Attempt pygame import even if we'd normally skip it.
+
+    Returns:
+        bool: True if pygame should be imported, False otherwise.
+    """
+
+    if os.getenv("SNAKE_DISABLE_PYGAME", "").lower() in {"1", "true", "yes"}:
+        return False
+
+    if os.getenv("SNAKE_ENABLE_PYGAME", "").lower() in {"1", "true", "yes"}:
+        return True
+
+    if sys.platform == "darwin":
+        try:
+            darwin_major = int(platform.release().split(".")[0])
+        except Exception:
+            # If we can't confidently identify the OS version, default to safety.
+            return False
+
+        # Some pygame builds abort at import time on older macOS/Darwin versions.
+        # Keep the game playable by disabling audio in that case.
+        if darwin_major < 26:
+            return False
+
+    return True
+
+
 # Optional: pygame for background music and sound effects
-try:
-    import pygame
-    PYGAME_AVAILABLE = True
-except ImportError:
+if _should_enable_pygame():
+    try:
+        import pygame
+
+        PYGAME_AVAILABLE = True
+    except ImportError:
+        pygame = None  # type: ignore[assignment]
+        PYGAME_AVAILABLE = False
+else:
+    pygame = None  # type: ignore[assignment]
     PYGAME_AVAILABLE = False
 
 # Optional: Pillow for loading background image (JPEG/PNG)
