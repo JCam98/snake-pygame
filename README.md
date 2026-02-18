@@ -2,7 +2,7 @@
 
 ## One-line value statement
 
-A classic 2D Snake game in Python with a minimal dependency footprint: play in a GUI with optional sound and background image, high-score persistence, and increasing difficulty.
+A classic 2D Snake game in Python with a minimal dependency footprint: play in a GUI with optional sound and background image, high-score persistence, and constant-speed gameplay.
 
 ---
 
@@ -25,9 +25,9 @@ To offer a single-file core game that works out of the box with the standard lib
 
 - **Classic gameplay**: Move with arrow keys; eat food to grow and score; avoid walls and your own tail.
 - **Score & high score**: Current score and persistent high score (saved to a local file).
-- **Increasing difficulty**: Game speed increases every 30 points (configurable in code).
+- **Constant speed**: Snake moves at a fixed speed throughout the game (no speed increase).
 - **Pause**: Press **P** to pause or resume.
-- **Restart**: Press **R** or **Space** to restart after game over or at any time.
+- **Restart**: Press **R** or **Space** to restart after game over or at any time. After restart, press an arrow key to start the move loop (same as initial game start).
 - **Background music & sound effects**: Looping ambient music, eat sound, and game-over sound (requires `pygame`).
 - **Optional background image**: Themed playfield image, downloaded and cached on first run (requires `Pillow` and network); falls back to solid color if unavailable.
 - **Graceful fallback**: Runs with only Python and tkinter; audio and background image are optional.
@@ -89,7 +89,7 @@ cd src
 python snake_game.py
 ```
 
-- **Start**: Move with any arrow key to start the game and background music (if pygame is available).
+- **Start**: Move with any arrow key to start the game and background music (if pygame is available). Same applies after restart—press an arrow to begin moving again.
 - **Play**: Eat red food (score +10); avoid walls and your tail.
 - **Pause**: **P** — **Resume**: **P** again.
 - **Restart**: **R** or **Space** (after game over or anytime).
@@ -123,26 +123,25 @@ At runtime the game may create **inside `src/`** (same directory as `snake_game.
 There is no external config file. All tuning is via **constants at the top of `src/snake_game.py`**:
 
 | Constant | Default | Purpose |
-|----------|---------|--------|
+|----------|---------|---------|
 | `CELL_SIZE` | 24 | Pixel size of each grid cell |
+| `CELL_PADDING` | 2 | Inner padding for drawn cells |
 | `GRID_WIDTH` | 20 | Grid width (cells) |
 | `GRID_HEIGHT` | 16 | Grid height (cells) |
-| `INITIAL_GAME_SPEED` | 120 | Initial delay between moves (ms) |
-| `MIN_GAME_SPEED` | 45 | Minimum delay (fastest speed) |
-| `SPEED_UP_POINTS` | 30 | Score interval for speed increase |
-| `SPEED_UP_AMOUNT` | 8 | Milliseconds to subtract per speed-up |
+| `GRID_CELLS` | 320 | Total cells (`GRID_WIDTH × GRID_HEIGHT`) |
+| `INITIAL_GAME_SPEED` | 120 | Delay between moves (ms); speed is constant |
 | `BG_COLOR`, `SNAKE_COLOR`, etc. | (hex) | UI colors |
 | `HIGH_SCORE_FILE` | path to `.snake_high_score` | High score file path |
 | `BACKGROUND_ARTICLE_URL` / `FALLBACK_BG_URL` | URLs | Source for optional background image |
 
-Edit these and save to change grid size, speed curve, or colors.
+Edit these and save to change grid size, speed, or colors.
 
 ---
 
 ## Limitations
 
 - **Single player only** – no multiplayer or AI.
-- **Grid and speed** – grid size and speed curve are fixed in code (no in-game settings).
+- **Grid and speed** – grid size and speed are fixed in code (no in-game settings).
 - **Platform** – on some macOS setups, `python snake_game.py` may show a Tcl/Tk version message; from `src/` use `./run_snake.sh` or `pythonw snake_game.py` instead.
 - **Background image** – requires network access on first run (or when cache is missing) and optional Pillow; falls back to solid color on failure.
 - **Audio** – requires optional `pygame`; no audio if pygame is not installed or init fails.
@@ -164,3 +163,4 @@ This project is licensed under the **MIT License**. See [LICENSE](LICENSE) in th
 - **Procedural audio**: Background music and SFX are generated in code (e.g. with `math.sin`) to avoid shipping or downloading asset files.
 - **High score in `src/`**: `.snake_high_score` is written next to the script so the game stays self-contained when run from `src/`.
 - **Shell launcher**: `src/run_snake.sh` prefers `pythonw` on macOS to avoid Tcl/Tk version dialogs when running from a terminal.
+- **Constant speed and restart behavior**: Game speed stays fixed for consistency. Restart cancels any pending move callbacks and waits for the first arrow press before starting the loop, matching the initial game behavior and avoiding duplicate loops.
