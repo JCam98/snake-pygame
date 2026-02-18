@@ -102,13 +102,16 @@ python snake_game.py
 snake-pygame/
 ├── README.md
 ├── LICENSE
-├── Dockerfile    
+├── Dockerfile
 ├── conf/
 │   └── requirements.txt   # Optional deps: pygame, Pillow
-├── scripts
-└── src/
-    ├── snake_game.py      # Main game (GUI, logic, optional audio/image)
-    └── run_snake.sh       # Launcher (prefers pythonw on macOS)
+├── scripts/
+│   ├── run_snake.sh       # Launcher (prefers pythonw on macOS)
+│   └── run_tests.sh       # Test runner
+├── src/
+│   └── snake_game.py      # Main game (GUI, logic, optional audio/image)
+└── test/
+    └── test_snake_game.py # Unit tests
 ```
 
 At runtime the game may create **inside `src/`** (same directory as `snake_game.py`):
