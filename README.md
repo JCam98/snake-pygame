@@ -29,7 +29,7 @@ To offer a single-file core game that works out of the box with the standard lib
 - **Pause**: Press **P** to pause or resume.
 - **Restart**: Press **R** or **Space** to restart after game over or at any time. After restart, press an arrow key to start the move loop (same as initial game start).
 - **Background music & sound effects**: Looping ambient music, eat sound, and game-over sound (requires `pygame`).
-- **Optional background image**: Themed playfield image, downloaded and cached on first run (requires `Pillow` and network); falls back to solid color if unavailable.
+- **Optional background image**: Playfield image loaded from bundled `.snake_background.jpg` (requires `Pillow`); no network access required. Falls back to solid color if the file is missing or Pillow is unavailable.
 - **Graceful fallback**: Runs with only Python and tkinter; audio and background image are optional.
 
 ---
@@ -109,7 +109,8 @@ snake-pygame/
 │   ├── run_snake.sh       # Launcher (prefers pythonw on macOS)
 │   └── run_tests.sh       # Test runner
 ├── src/
-│   └── snake_game.py      # Main game (GUI, logic, optional audio/image)
+│   ├── snake_game.py           # Main game (GUI, logic, optional audio/image)
+│   └── .snake_background.jpg   # Bundled background image (loaded when Pillow available)
 └── test/
     └── test_snake_game.py # Unit tests
 ```
@@ -117,7 +118,8 @@ snake-pygame/
 At runtime the game may create **inside `src/`** (same directory as `snake_game.py`):
 
 - `.snake_high_score` – persisted high score
-- `.snake_background.jpg` – cached background image (if Pillow and download succeeded)
+
+The game loads `.snake_background.jpg` from `src/` as the playfield background (no network; bundled with the repo).
 
 ---
 
@@ -135,9 +137,9 @@ There is no external config file. All tuning is via **constants at the top of `s
 | `INITIAL_GAME_SPEED` | 120 | Delay between moves (ms); speed is constant |
 | `BG_COLOR`, `SNAKE_COLOR`, etc. | (hex) | UI colors |
 | `HIGH_SCORE_FILE` | path to `.snake_high_score` | High score file path |
-| `BACKGROUND_ARTICLE_URL` / `FALLBACK_BG_URL` | URLs | Source for optional background image |
+| `BACKGROUND_IMAGE_PATH` | path to `.snake_background.jpg` | Bundled background image path |
 
-Edit these and save to change grid size, speed, or colors.
+Edit these and save to change grid size, speed, colors, or background image.
 
 ---
 
@@ -146,7 +148,7 @@ Edit these and save to change grid size, speed, or colors.
 - **Single player only** – no multiplayer or AI.
 - **Grid and speed** – grid size and speed are fixed in code (no in-game settings).
 - **Platform** – on some macOS setups, `python snake_game.py` may show a Tcl/Tk version message; from `src/` use `./run_snake.sh` or `pythonw snake_game.py` instead.
-- **Background image** – requires network access on first run (or when cache is missing) and optional Pillow; falls back to solid color on failure.
+- **Background image** – requires optional Pillow and bundled `.snake_background.jpg` in `src/`. Loaded locally (no network). Falls back to solid color if file is missing or Pillow is unavailable.
 - **Audio** – requires optional `pygame`; no audio if pygame is not installed or init fails.
 - **High score** – stored in a file inside `src/` (not user-specific).
 

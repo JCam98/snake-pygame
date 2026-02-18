@@ -13,11 +13,8 @@ import random
 import math
 import os
 import array
-import io
-import re
 import sys
 import platform
-import urllib.request
 from typing import Optional
 
 
@@ -98,93 +95,29 @@ SAMPLE_RATE = 22050
 MUSIC_VOLUME = 0.25
 SFX_VOLUME = 0.35
 
-# Background image: from Havahart article (snakes in your yard)
-BACKGROUND_ARTICLE_URL = "https://www.havahart.com/articles/identify-rid-poisonous-snakes-yard"
-BACKGROUND_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".snake_background.jpg")
-# Fallback if article image unavailable: free-use grass/yard image
-FALLBACK_BG_URL = "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600"
-
 _DIRECTION_OPPOSITES = {"Up": "Down", "Down": "Up", "Left": "Right", "Right": "Left"}
 
+# Bundled background image (same directory as snake_game.py); no network required
+BACKGROUND_IMAGE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".snake_background.jpg")
 
-def _fetch_background_image_url(article_url: str) -> Optional[str]:
-    """Fetch article HTML and return og:image or first content image URL, or None.
 
-    Args:
-        article_url (str): URL of the HTML page to fetch and parse for an image.
+def _load_background_image(
+    width: int, height: int, path: Optional[str] = None
+) -> Optional["Image.Image"]:
+    """Load background image from the bundled .snake_background.jpg file.
 
-    Returns:
-        str | None: Absolute URL of the first suitable image found, or None on failure.
+    Returns a resized PIL Image, or None if Pillow is unavailable, file is missing, or load fails.
     """
+    if not PILLOW_AVAILABLE:
+        return None
+    target = path if path is not None else BACKGROUND_IMAGE_PATH
+    if not os.path.isfile(target):
+        return None
     try:
-        req = urllib.request.Request(article_url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            html = resp.read().decode("utf-8", errors="ignore")
-        # og:image
-        m = re.search(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', html, re.I)
-        if m:
-            return m.group(1).strip()
-        m = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']', html, re.I)
-        if m:
-            return m.group(1).strip()
-        # First img in content
-        m = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', html)
-        if m:
-            src = m.group(1).strip()
-            if src.startswith("//"):
-                return "https:" + src
-            if src.startswith("/"):
-                from urllib.parse import urljoin
-                return urljoin(article_url, src)
-            return src
+        img = Image.open(target).convert("RGB")
+        return img.resize((width, height), Image.Resampling.LANCZOS)
     except Exception:
-        pass
-    return None
-
-
-def _download_background_image(target_path: str, width: int, height: int) -> bool:
-    """Download background image from article or fallback; save to target_path.
-
-    Args:
-        target_path (str): File path where the image will be saved (e.g. JPEG).
-        width (int): Desired image width in pixels (used when Pillow is available).
-        height (int): Desired image height in pixels (used when Pillow is available).
-
-    Returns:
-        bool: True if the image was successfully downloaded and saved, False otherwise.
-    """
-    url = _fetch_background_image_url(BACKGROUND_ARTICLE_URL)
-    if not url:
-        url = FALLBACK_BG_URL
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = resp.read()
-        if not PILLOW_AVAILABLE:
-            with open(target_path, "wb") as f:
-                f.write(data)
-            return True
-        img = Image.open(io.BytesIO(data))
-        img = img.convert("RGB")
-        img = img.resize((width, height), Image.Resampling.LANCZOS)
-        img.save(target_path, "JPEG", quality=85)
-        return True
-    except Exception:
-        try:
-            req = urllib.request.Request(FALLBACK_BG_URL, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                data = resp.read()
-            if PILLOW_AVAILABLE:
-                img = Image.open(io.BytesIO(data))
-                img = img.convert("RGB").resize((width, height), Image.Resampling.LANCZOS)
-                img.save(target_path, "JPEG", quality=85)
-            else:
-                with open(target_path, "wb") as f:
-                    f.write(data)
-            return True
-        except Exception:
-            pass
-    return False
+        return None
 
 
 def load_high_score() -> int:
@@ -411,19 +344,12 @@ class SnakeGame:
         )
         self.canvas.pack(padx=16, pady=(0, 8))
 
-        # Background image from article URL (or fallback)
+        # Background image: load from bundled .snake_background.jpg (no network required)
         self.bg_photo = None
         if PILLOW_AVAILABLE:
             try:
-                if not os.path.isfile(BACKGROUND_CACHE):
-                    _download_background_image(
-                        BACKGROUND_CACHE,
-                        self.canvas_width,
-                        self.canvas_height,
-                    )
-                if os.path.isfile(BACKGROUND_CACHE):
-                    img = Image.open(BACKGROUND_CACHE).convert("RGB")
-                    img = img.resize((self.canvas_width, self.canvas_height), Image.Resampling.LANCZOS)
+                img = _load_background_image(self.canvas_width, self.canvas_height)
+                if img is not None:
                     self.bg_photo = ImageTk.PhotoImage(img)
             except Exception:
                 pass

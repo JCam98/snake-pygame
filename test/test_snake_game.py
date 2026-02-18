@@ -131,236 +131,53 @@ def test_save_high_score_swallows_oserror(monkeypatch: pytest.MonkeyPatch) -> No
     snake_game.save_high_score(5)
 
 
-class _DummyResponse:
-    """Context manager-like response for urllib.request.urlopen()."""
+def test_load_background_image_returns_image_when_file_exists(tmp_path: Path) -> None:
+    """Expected case: loads and resizes .snake_background.jpg when file exists and Pillow available."""
 
-    def __init__(self, data: bytes) -> None:
-        self._data = data
+    pytest.importorskip("PIL")
 
-    def read(self) -> bytes:
-        """Return the response bytes."""
+    # Create a minimal valid JPEG
+    from PIL import Image as PILImage
 
-        return self._data
+    small_img = PILImage.new("RGB", (10, 10), color=(50, 100, 80))
+    bg_path = tmp_path / ".snake_background.jpg"
+    small_img.save(bg_path, "JPEG")
 
-    def __enter__(self) -> "_DummyResponse":
-        return self
+    result = snake_game._load_background_image(100, 80, path=str(bg_path))
 
-    def __exit__(
-        self,
-        _exc_type: type[BaseException] | None,
-        _exc: BaseException | None,
-        _tb: object | None,
-    ) -> bool:
-        return False
+    assert result is not None
+    assert result.size == (100, 80)
+    assert result.mode == "RGB"
 
 
-def test_fetch_background_image_url_prefers_og_image_property(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Expected case: returns og:image content when meta property exists."""
+def test_load_background_image_returns_none_when_file_missing(tmp_path: Path) -> None:
+    """Edge case: returns None when .snake_background.jpg does not exist."""
 
-    html = b"""
-    <html><head>
-      <meta property='og:image' content='https://example.com/a.jpg'>
-    </head></html>
-    """
+    missing_path = tmp_path / "nonexistent.jpg"
+    assert not missing_path.exists()
 
-    monkeypatch.setattr(
-        snake_game.urllib.request,
-        "urlopen",
-        lambda *_args, **_kwargs: _DummyResponse(html),
-    )
+    result = snake_game._load_background_image(100, 80, path=str(missing_path))
 
-    assert (
-        snake_game._fetch_background_image_url("https://example.com/article")
-        == "https://example.com/a.jpg"
-    )
+    assert result is None
 
 
-def test_fetch_background_image_url_handles_img_src_variants(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Edge case: falls back to first <img> and normalizes protocol-relative and root-relative URLs."""
-
-    # protocol-relative
-    html = b"<html><img src='//cdn.example.com/x.png'></html>"
-    monkeypatch.setattr(
-        snake_game.urllib.request,
-        "urlopen",
-        lambda *_args, **_kwargs: _DummyResponse(html),
-    )
-    assert (
-        snake_game._fetch_background_image_url("https://example.com/article")
-        == "https://cdn.example.com/x.png"
-    )
-
-    # root-relative
-    html2 = b"<html><img src='/assets/y.png'></html>"
-    monkeypatch.setattr(
-        snake_game.urllib.request,
-        "urlopen",
-        lambda *_args, **_kwargs: _DummyResponse(html2),
-    )
-    assert (
-        snake_game._fetch_background_image_url("https://example.com/blog/post")
-        == "https://example.com/assets/y.png"
-    )
-
-    # absolute
-    html3 = b"<html><img src='https://images.example.com/z.png'></html>"
-    monkeypatch.setattr(
-        snake_game.urllib.request,
-        "urlopen",
-        lambda *_args, **_kwargs: _DummyResponse(html3),
-    )
-    assert (
-        snake_game._fetch_background_image_url("https://example.com/anything")
-        == "https://images.example.com/z.png"
-    )
-
-
-def test_fetch_background_image_url_parses_og_image_when_attributes_reversed(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Edge case: supports meta tags where content appears before property."""
-
-    html = b"""
-    <html><head>
-      <meta content='https://example.com/reversed.jpg' property='og:image'>
-    </head></html>
-    """
-
-    monkeypatch.setattr(
-        snake_game.urllib.request,
-        "urlopen",
-        lambda *_args, **_kwargs: _DummyResponse(html),
-    )
-
-    assert (
-        snake_game._fetch_background_image_url("https://example.com/article")
-        == "https://example.com/reversed.jpg"
-    )
-
-
-def test_fetch_background_image_url_returns_none_on_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Failure case: network/parse errors result in None."""
-
-    def _raise(*_args: object, **_kwargs: object) -> object:
-        """Raise an exception to simulate a fetch failure."""
-
-        raise RuntimeError("boom")
-
-    monkeypatch.setattr(snake_game.urllib.request, "urlopen", _raise)
-
-    assert snake_game._fetch_background_image_url("https://example.com/article") is None
-
-
-def test_download_background_image_writes_bytes_when_pillow_unavailable(
+def test_load_background_image_returns_none_when_pillow_unavailable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Expected case: when Pillow is unavailable, download writes raw bytes to disk."""
+    """Edge case: returns None when Pillow is not available."""
 
-    target = tmp_path / "bg.jpg"
+    pytest.importorskip("PIL")
+    from PIL import Image as PILImage
+
+    small_img = PILImage.new("RGB", (10, 10), color=(50, 100, 80))
+    bg_path = tmp_path / ".snake_background.jpg"
+    small_img.save(bg_path, "JPEG")
+
     monkeypatch.setattr(snake_game, "PILLOW_AVAILABLE", False)
-    monkeypatch.setattr(snake_game, "_fetch_background_image_url", lambda _u: "https://x/img")
-    monkeypatch.setattr(
-        snake_game.urllib.request,
-        "urlopen",
-        lambda *_args, **_kwargs: _DummyResponse(b"JPEGDATA"),
-    )
 
-    assert snake_game._download_background_image(str(target), width=10, height=10) is True
-    assert target.read_bytes() == b"JPEGDATA"
+    result = snake_game._load_background_image(100, 80, path=str(bg_path))
 
-
-def test_download_background_image_resizes_and_saves_when_pillow_available(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Expected case: when Pillow is available, downloads, resizes, and saves a JPEG."""
-
-    class _DummyImg:
-        """Pillow Image stub."""
-
-        def convert(self, _mode: str) -> "_DummyImg":
-            return self
-
-        def resize(self, _size: tuple[int, int], _resample: object) -> "_DummyImg":
-            return self
-
-        def save(self, path: str, _fmt: str, **_kwargs: object) -> None:
-            Path(path).write_bytes(b"SAVED")
-
-    class _DummyImageModule:
-        """Module-like stub for PIL.Image."""
-
-        class Resampling:
-            """Stub enum container."""
-
-            LANCZOS = object()
-
-        @staticmethod
-        def open(_fp: object) -> _DummyImg:
-            return _DummyImg()
-
-    target = tmp_path / "bg.jpg"
-    monkeypatch.setattr(snake_game, "PILLOW_AVAILABLE", True)
-    monkeypatch.setattr(snake_game, "Image", _DummyImageModule)
-    monkeypatch.setattr(snake_game, "_fetch_background_image_url", lambda _u: "https://x/img")
-    monkeypatch.setattr(
-        snake_game.urllib.request,
-        "urlopen",
-        lambda *_args, **_kwargs: _DummyResponse(b"IMGBYTES"),
-    )
-
-    assert snake_game._download_background_image(str(target), width=10, height=10) is True
-    assert target.read_bytes() == b"SAVED"
-
-
-def test_download_background_image_uses_fallback_after_primary_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Edge case: if the primary download fails, a fallback attempt is made."""
-
-    target = tmp_path / "bg.jpg"
-    monkeypatch.setattr(snake_game, "PILLOW_AVAILABLE", False)
-    monkeypatch.setattr(snake_game, "_fetch_background_image_url", lambda _u: "https://primary/img")
-
-    calls = {"n": 0}
-
-    def _urlopen(*_args: object, **_kwargs: object) -> _DummyResponse:
-        """Fail once, then succeed."""
-
-        calls["n"] += 1
-        if calls["n"] == 1:
-            raise OSError("primary failed")
-        return _DummyResponse(b"FALLBACK")
-
-    monkeypatch.setattr(snake_game.urllib.request, "urlopen", _urlopen)
-
-    assert snake_game._download_background_image(str(target), width=10, height=10) is True
-    assert target.read_bytes() == b"FALLBACK"
-
-
-def test_download_background_image_returns_false_when_all_downloads_fail(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Failure case: returns False if both primary and fallback downloads error."""
-
-    target = tmp_path / "bg.jpg"
-    monkeypatch.setattr(snake_game, "PILLOW_AVAILABLE", False)
-    monkeypatch.setattr(snake_game, "_fetch_background_image_url", lambda _u: None)
-
-    def _raise(*_args: object, **_kwargs: object) -> object:
-        """Raise an exception to simulate download failure."""
-
-        raise OSError("download failed")
-
-    monkeypatch.setattr(snake_game.urllib.request, "urlopen", _raise)
-
-    assert snake_game._download_background_image(str(target), width=10, height=10) is False
-    assert not target.exists()
+    assert result is None
 
 
 class _DummySound:
