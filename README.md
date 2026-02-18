@@ -102,8 +102,10 @@ python snake_game.py
 snake-pygame/
 ├── README.md
 ├── LICENSE
+├── Dockerfile    
 ├── conf/
 │   └── requirements.txt   # Optional deps: pygame, Pillow
+├── scripts
 └── src/
     ├── snake_game.py      # Main game (GUI, logic, optional audio/image)
     └── run_snake.sh       # Launcher (prefers pythonw on macOS)

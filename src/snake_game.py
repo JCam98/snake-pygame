@@ -2,7 +2,7 @@
 """
 Simple Snake Game with interactive GUI.
 Use arrow keys to move. Eat the food to grow and score points. Don't hit the walls or yourself!
-Features: background music, sound effects, high score, increasing speed, pause.
+Features: background music, sound effects, high score, pause.
 
 If you see "macOS 26 (2602) or later required" when running with `python snake_game.py`,
 run instead:  ./run_snake.sh   or  pythonw snake_game.py
@@ -45,7 +45,7 @@ def _should_enable_pygame() -> bool:
     if sys.platform == "darwin":
         try:
             darwin_major = int(platform.release().split(".")[0])
-        except Exception:
+        except (ValueError, IndexError, AttributeError):
             # If we can't confidently identify the OS version, default to safety.
             return False
 
@@ -79,12 +79,11 @@ except ImportError:
 
 # Game constants
 CELL_SIZE = 24
+CELL_PADDING = 2  # Inner padding for draw_cell rectangles
 GRID_WIDTH = 20
 GRID_HEIGHT = 16
+GRID_CELLS = GRID_WIDTH * GRID_HEIGHT
 INITIAL_GAME_SPEED = 120
-MIN_GAME_SPEED = 45
-SPEED_UP_POINTS = 30
-SPEED_UP_AMOUNT = 8
 BG_COLOR = "#1a1a2e"
 SNAKE_COLOR = "#00d9ff"
 SNAKE_HEAD_COLOR = "#00ff88"
@@ -94,11 +93,18 @@ TEXT_COLOR = "#eaeaea"
 ACCENT_COLOR = "#ffd93d"
 HIGH_SCORE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".snake_high_score")
 SAMPLE_RATE = 22050
+
+# Fixed audio volumes (0.0 to 1.0). Used only when pygame audio is enabled.
+MUSIC_VOLUME = 0.25
+SFX_VOLUME = 0.35
+
 # Background image: from Havahart article (snakes in your yard)
 BACKGROUND_ARTICLE_URL = "https://www.havahart.com/articles/identify-rid-poisonous-snakes-yard"
 BACKGROUND_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".snake_background.jpg")
 # Fallback if article image unavailable: free-use grass/yard image
 FALLBACK_BG_URL = "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=600"
+
+_DIRECTION_OPPOSITES = {"Up": "Down", "Down": "Up", "Left": "Right", "Right": "Left"}
 
 
 def _fetch_background_image_url(article_url: str) -> Optional[str]:
@@ -221,8 +227,12 @@ class GameAudio:
         Returns:
             None
         """
+
         self.music_playing = False
-        self.sounds = {}
+        self.sounds: dict[str, object] = {}
+        self.music_volume = MUSIC_VOLUME
+        self.sfx_volume = SFX_VOLUME
+
         if not PYGAME_AVAILABLE:
             return
         try:
@@ -245,12 +255,19 @@ class GameAudio:
             n_samples = int(SAMPLE_RATE * duration_sec)
             t = [i / SAMPLE_RATE for i in range(n_samples)]
             f1, f2 = 110.0, 164.0
-            wave = [0.15 * (math.sin(2 * math.pi * f1 * x) + 0.6 * math.sin(2 * math.pi * f2 * x)) for x in t]
+            wave = [
+                0.15 * (math.sin(2 * math.pi * f1 * x) + 0.6 * math.sin(2 * math.pi * f2 * x))
+                for x in t
+            ]
             for i in range(min(400, n_samples // 2)):
                 wave[i] *= i / 400
                 wave[-1 - i] *= i / 400
             buf = array.array("h", (int(32767 * x) for x in wave))
             self.bg_sound = pygame.mixer.Sound(buffer=buf.tobytes())
+            try:
+                self.bg_sound.set_volume(self.music_volume)
+            except Exception:
+                pass
         except Exception:
             self.bg_sound = None
 
@@ -268,12 +285,21 @@ class GameAudio:
             wave = [0.3 * math.sin(2 * math.pi * 880 * x) * math.exp(-x * 20) for x in t]
             buf = array.array("h", (int(32767 * x) for x in wave))
             self.sounds["eat"] = pygame.mixer.Sound(buffer=buf.tobytes())
+            try:
+                self.sounds["eat"].set_volume(self.sfx_volume)
+            except Exception:
+                pass
+
             n = int(SAMPLE_RATE * 0.4)
             t = [i / SAMPLE_RATE for i in range(n)]
             freqs = [400 * (1 - 0.7 * i / n) for i in range(n)]
             wave = [0.25 * math.sin(2 * math.pi * f * x) for x, f in zip(t, freqs)]
             buf = array.array("h", (int(32767 * x) for x in wave))
             self.sounds["game_over"] = pygame.mixer.Sound(buffer=buf.tobytes())
+            try:
+                self.sounds["game_over"].set_volume(self.sfx_volume)
+            except Exception:
+                pass
         except Exception:
             self.sounds.clear()
 
@@ -371,7 +397,9 @@ class SnakeGame:
         self.high_score = load_high_score()
         self.game_speed = INITIAL_GAME_SPEED
         self.paused = False
+        self._move_after_id: Optional[str] = None  # Tk after id; cancel before rescheduling
         self.audio = GameAudio()
+
 
         # Game canvas
         self.canvas = tk.Canvas(
@@ -418,6 +446,7 @@ class SnakeGame:
         self.score = 0
         self.game_over = False
         self.game_started = False
+        self._grid_drawn = False
 
         self.setup_game()
         self.bind_keys()
@@ -437,6 +466,7 @@ class SnakeGame:
             (center_x - 1, center_y),
             (center_x, center_y),
         ]
+        self._snake_cells = set(self.snake)
         self.direction = "Right"
         self.next_direction = "Right"
         self.score = 0
@@ -448,48 +478,68 @@ class SnakeGame:
         self._update_score_display()
         self.inst_label.config(text="Arrow keys • Pause: P • Restart: R or Space")
 
-    def _update_score_display(self) -> None:
-        """Refresh the on-screen score and high score label.
+    def _schedule_next_move(self) -> None:
+        """Schedule the next move_snake tick. Ensures only one move loop runs at a time."""
+        self._move_after_id = self.root.after(self.game_speed, self.move_snake)
 
-        Returns:
-            None
-        """
+    def _cancel_pending_move(self) -> None:
+        """Cancel any pending move_snake callback (e.g. before restart)."""
+        aid = getattr(self, "_move_after_id", None)
+        if aid is not None:
+            self.root.after_cancel(aid)
+            self._move_after_id = None
+
+    def _update_score_display(self) -> None:
+        """Refresh the on-screen score and high score label."""
         disp = f"Score: {self.score}  •  High Score: {self.high_score}"
         self.score_label.config(text=disp)
 
-    def draw_grid(self) -> None:
-        """Draw background image (if loaded), then grid lines and border on the canvas.
+    def _handle_game_over(self, message: str) -> None:
+        """End the game, play SFX, save high score if needed, and schedule next tick."""
+        self.game_over = True
+        self.audio.stop_music()
+        self.audio.play_game_over()
+        if self.score > self.high_score:
+            self.high_score = self.score
+            save_high_score(self.high_score)
+        self._update_score_display()
+        self.inst_label.config(text=message)
+        self.draw()
+        self._schedule_next_move()
 
-        Returns:
-            None
-        """
-        self.canvas.delete("all")
+    def _draw_static_grid(self) -> None:
+        """Draw background and grid once; used as base layer for canvas."""
         if self.bg_photo:
-            self.canvas.create_image(0, 0, anchor=tk.NW, image=self.bg_photo)
+            self.canvas.create_image(0, 0, anchor=tk.NW, image=self.bg_photo, tags=("grid",))
         for x in range(0, self.canvas_width + 1, CELL_SIZE):
             self.canvas.create_line(
-                x, 0, x, self.canvas_height, fill=WALL_COLOR, width=1
+                x, 0, x, self.canvas_height, fill=WALL_COLOR, width=1, tags=("grid",)
             )
         for y in range(0, self.canvas_height + 1, CELL_SIZE):
             self.canvas.create_line(
-                0, y, self.canvas_width, y, fill=WALL_COLOR, width=1
+                0, y, self.canvas_width, y, fill=WALL_COLOR, width=1, tags=("grid",)
             )
-        # Border
         self.canvas.create_rectangle(
             1, 1, self.canvas_width - 1, self.canvas_height - 1,
-            outline=ACCENT_COLOR, width=2
+            outline=ACCENT_COLOR, width=2, tags=("grid",)
         )
 
-    def spawn_food(self) -> None:
-        """Place food at a random cell not occupied by the snake. Updates self.food.
+    def draw_grid(self) -> None:
+        """Draw grid once; subsequent draws only update dynamic content (snake, food, overlays)."""
+        if not self._grid_drawn:
+            self.canvas.delete("all")
+            self._draw_static_grid()
+            self._grid_drawn = True
 
-        Returns:
-            None
-        """
+    def spawn_food(self) -> None:
+        """Place food at a random cell not occupied by the snake. Updates self.food."""
+        if len(self._snake_cells) >= GRID_CELLS:
+            self.food = None
+            return
         while True:
             x = random.randint(0, GRID_WIDTH - 1)
             y = random.randint(0, GRID_HEIGHT - 1)
-            if (x, y) not in self.snake:
+            if (x, y) not in self._snake_cells:
                 self.food = (x, y)
                 break
 
@@ -507,24 +557,22 @@ class SnakeGame:
         Returns:
             None
         """
-        x1 = x * CELL_SIZE + 2
-        y1 = y * CELL_SIZE + 2
-        x2 = x1 + CELL_SIZE - 4
-        y2 = y1 + CELL_SIZE - 4
+        x1 = x * CELL_SIZE + CELL_PADDING
+        y1 = y * CELL_SIZE + CELL_PADDING
+        x2 = x1 + CELL_SIZE - 2 * CELL_PADDING
+        y2 = y1 + CELL_SIZE - 2 * CELL_PADDING
         self.canvas.create_rectangle(
             x1, y1, x2, y2,
             fill=color,
             outline=outline or color,
             width=1,
+            tags=("dynamic",),
         )
 
     def draw(self) -> None:
-        """Redraw the full scene: grid, snake, food, and any game-over or pause overlay.
-
-        Returns:
-            None
-        """
+        """Redraw the scene: grid (once), then snake, food, and any game-over or pause overlay."""
         self.draw_grid()
+        self.canvas.delete("dynamic")
         if self.game_over:
             self.canvas.create_text(
                 self.canvas_width // 2,
@@ -533,6 +581,7 @@ class SnakeGame:
                 font=("Courier", 18, "bold"),
                 fill=ACCENT_COLOR,
                 justify="center",
+                tags=("dynamic",),
             )
             return
         if self.paused:
@@ -543,6 +592,7 @@ class SnakeGame:
                 font=("Courier", 20, "bold"),
                 fill=ACCENT_COLOR,
                 justify="center",
+                tags=("dynamic",),
             )
         # Food
         if self.food:
@@ -560,12 +610,12 @@ class SnakeGame:
         """
         if self.game_over:
             self.draw()
-            self.root.after(self.game_speed, self.move_snake)
+            self._schedule_next_move()
             return
 
         if self.paused:
             self.draw()
-            self.root.after(self.game_speed, self.move_snake)
+            self._schedule_next_move()
             return
 
         self.direction = self.next_direction
@@ -582,36 +632,20 @@ class SnakeGame:
 
         # Wall collision
         if head_x < 0 or head_x >= GRID_WIDTH or head_y < 0 or head_y >= GRID_HEIGHT:
-            self.game_over = True
-            self.audio.stop_music()
-            self.audio.play_game_over()
-            if self.score > self.high_score:
-                self.high_score = self.score
-                save_high_score(self.high_score)
-            self._update_score_display()
-            self.inst_label.config(text="You hit the wall! Press R or Space to restart.")
-            self.draw()
-            self.root.after(self.game_speed, self.move_snake)
+            self._handle_game_over("You hit the wall! Press R or Space to restart.")
             return
 
         # Self collision
-        if (head_x, head_y) in self.snake:
-            self.game_over = True
-            self.audio.stop_music()
-            self.audio.play_game_over()
-            if self.score > self.high_score:
-                self.high_score = self.score
-                save_high_score(self.high_score)
-            self._update_score_display()
-            self.inst_label.config(text="You hit yourself! Press R or Space to restart.")
-            self.draw()
-            self.root.after(self.game_speed, self.move_snake)
+        if (head_x, head_y) in self._snake_cells:
+            self._handle_game_over("You hit yourself! Press R or Space to restart.")
             return
 
-        self.snake.append((head_x, head_y))
+        new_head = (head_x, head_y)
+        self.snake.append(new_head)
+        self._snake_cells.add(new_head)
 
         # Food collision
-        if (head_x, head_y) == self.food:
+        if new_head == self.food:
             self.score += 10
             self.audio.play_eat()
             if self.score > self.high_score:
@@ -619,14 +653,11 @@ class SnakeGame:
                 save_high_score(self.high_score)
             self._update_score_display()
             self.spawn_food()
-            # Speed up every SPEED_UP_POINTS
-            if self.score % SPEED_UP_POINTS == 0 and self.score > 0:
-                self.game_speed = max(MIN_GAME_SPEED, self.game_speed - SPEED_UP_AMOUNT)
         else:
-            self.snake.pop(0)
+            self._snake_cells.discard(self.snake.pop(0))
 
         self.draw()
-        self.root.after(self.game_speed, self.move_snake)
+        self._schedule_next_move()
 
     def change_direction(self, new_dir: str) -> None:
         """Update movement direction if not opposite to current; may start the game and music.
@@ -637,13 +668,7 @@ class SnakeGame:
         Returns:
             None
         """
-        opposites = {
-            "Up": "Down",
-            "Down": "Up",
-            "Left": "Right",
-            "Right": "Left",
-        }
-        if new_dir != opposites.get(self.next_direction):
+        if new_dir != _DIRECTION_OPPOSITES.get(self.next_direction):
             self.next_direction = new_dir
             if not self.game_started:
                 self.game_started = True
@@ -666,15 +691,12 @@ class SnakeGame:
         self.draw()
 
     def restart(self) -> None:
-        """Restart the game from initial state and resume the move loop.
+        """Restart the game from initial state. Move loop starts on first arrow (like initial game)."""
 
-        Returns:
-            None
-        """
+        self._cancel_pending_move()
         self.game_started = False
         self.setup_game()
         self.draw()
-        self.root.after(self.game_speed, self.move_snake)
 
     def bind_keys(self) -> None:
         """Bind arrow keys, P (pause), R and Space (restart) to their handlers.

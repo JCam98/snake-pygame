@@ -368,11 +368,17 @@ class _DummySound:
 
     def __init__(self, *_args: object, **_kwargs: object) -> None:
         self.play_calls: list[dict[str, object]] = []
+        self.volume_calls: list[float] = []
 
     def play(self, *args: object, **kwargs: object) -> None:
         """Record sound playback."""
 
         self.play_calls.append({"args": args, "kwargs": kwargs})
+
+    def set_volume(self, volume: float) -> None:
+        """Record volume changes."""
+
+        self.volume_calls.append(float(volume))
 
 
 class _DummyMixer:
@@ -562,16 +568,26 @@ class _DummyRoot:
     def __init__(self) -> None:
         self.bind_calls: list[tuple[str, object]] = []
         self.after_calls: list[tuple[int, object]] = []
+        self.after_cancel_calls: list[str] = []
+        self._after_counter = 0
 
     def bind(self, sequence: str, func: object) -> None:
         """Record bind calls."""
 
         self.bind_calls.append((sequence, func))
 
-    def after(self, delay_ms: int, func: object) -> None:
-        """Record scheduled callbacks without executing them."""
+    def after(self, delay_ms: int, func: object) -> str:
+        """Record scheduled callbacks and return a unique id (like tkinter)."""
 
+        self._after_counter += 1
+        aid = f"after_{self._after_counter}"
         self.after_calls.append((delay_ms, func))
+        return aid
+
+    def after_cancel(self, aid: str) -> None:
+        """Record cancelled callback ids."""
+
+        self.after_cancel_calls.append(aid)
 
 
 class _DummyAudio:
@@ -618,11 +634,11 @@ def _make_game() -> snake_game.SnakeGame:
     game.inst_label = _DummyLabel()
     game.audio = _DummyAudio()
     game.bg_photo = None
-
     game.canvas_width = 48
     game.canvas_height = 48
-
     game.snake = [(1, 1), (2, 1), (3, 1)]
+    game._snake_cells = set(game.snake)
+    game._grid_drawn = False
     game.direction = "Right"
     game.next_direction = "Right"
     game.food = (5, 5)
@@ -661,6 +677,7 @@ def test_snake_game_draw_grid_draws_border_and_optional_bg() -> None:
 
     game.canvas.calls.clear()
     game.bg_photo = object()
+    game._grid_drawn = False  # Force full redraw to test bg path
     game.draw_grid()
     assert any(name == "create_image" for name, _args, _kwargs in game.canvas.calls)
 
@@ -698,6 +715,7 @@ def test_snake_game_draw_variants_game_over_paused_and_normal() -> None:
     game.paused = False
     game.food = (1, 1)
     game.snake = [(0, 0), (1, 0)]
+    game._snake_cells = set(game.snake)
     game.draw()
     assert any(name == "create_rectangle" for name, _args, _kwargs in game.canvas.calls)
 
@@ -707,6 +725,7 @@ def test_snake_game_spawn_food_avoids_snake_cells(monkeypatch: pytest.MonkeyPatc
 
     game = _make_game()
     game.snake = [(0, 0)]
+    game._snake_cells = {(0, 0)}
 
     seq = [0, 0, 1, 1]
 
@@ -719,6 +738,22 @@ def test_snake_game_spawn_food_avoids_snake_cells(monkeypatch: pytest.MonkeyPatc
 
     game.spawn_food()
     assert game.food == (1, 1)
+
+
+def test_snake_game_spawn_food_sets_none_when_grid_full() -> None:
+    """Edge case: spawn_food sets food to None when snake fills the grid (avoids infinite loop)."""
+
+    game = _make_game()
+    game._snake_cells = {
+        (x, y)
+        for x in range(snake_game.GRID_WIDTH)
+        for y in range(snake_game.GRID_HEIGHT)
+    }
+    game.snake = list(game._snake_cells)[:3]
+
+    game.spawn_food()
+
+    assert game.food is None
 
 
 def test_snake_game_change_direction_starts_game_and_prevents_reverse(
@@ -780,14 +815,14 @@ def test_snake_game_toggle_pause_toggles_state_and_updates_label() -> None:
     assert game.paused is False
 
 
-def test_snake_game_restart_calls_setup_draw_and_schedules_next_tick(
+def test_snake_game_restart_resets_state_and_waits_for_arrow(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Expected case: restart resets game_started and schedules move loop."""
+    """Expected case: restart resets game_started and state; move loop starts on first arrow."""
 
     game = _make_game()
 
-    called = {"setup": 0, "draw": 0, "move": 0}
+    called = {"setup": 0, "draw": 0}
 
     def _setup_stub() -> None:
         """Record setup_game."""
@@ -799,14 +834,8 @@ def test_snake_game_restart_calls_setup_draw_and_schedules_next_tick(
 
         called["draw"] += 1
 
-    def _move_stub() -> None:
-        """Record move_snake."""
-
-        called["move"] += 1
-
     monkeypatch.setattr(game, "setup_game", _setup_stub)
     monkeypatch.setattr(game, "draw", _draw_stub)
-    monkeypatch.setattr(game, "move_snake", _move_stub)
 
     game.game_started = True
     game.restart()
@@ -814,7 +843,135 @@ def test_snake_game_restart_calls_setup_draw_and_schedules_next_tick(
     assert game.game_started is False
     assert called["setup"] == 1
     assert called["draw"] == 1
-    assert game.root.after_calls
+    assert not game.root.after_calls
+
+
+def test_snake_game_restart_cancels_pending_move(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Expected case: restart cancels any pending move callback; does not schedule (waits for arrow)."""
+
+    game = _make_game()
+
+    def _setup_stub() -> None:
+        pass
+
+    def _draw_stub() -> None:
+        pass
+
+    monkeypatch.setattr(game, "setup_game", _setup_stub)
+    monkeypatch.setattr(game, "draw", _draw_stub)
+
+    # Simulate a pending move from a previous game-over state.
+    game._schedule_next_move()
+    assert game._move_after_id is not None
+    pending_id = game._move_after_id
+
+    game.restart()
+
+    assert game.root.after_cancel_calls == [pending_id]
+    assert game._move_after_id is None
+    assert len(game.root.after_calls) == 1  # Only the pre-restart schedule; restart adds none
+
+
+def test_snake_game_schedule_next_move_calls_after_with_game_speed() -> None:
+    """Expected case: _schedule_next_move calls root.after with game_speed and move_snake."""
+
+    game = _make_game()
+    game.game_speed = 99
+
+    game._schedule_next_move()
+
+    assert len(game.root.after_calls) == 1
+    delay, callback = game.root.after_calls[0]
+    assert delay == 99
+    assert callback == game.move_snake
+    assert game._move_after_id == "after_1"
+
+
+def test_snake_game_schedule_next_move_stores_after_id() -> None:
+    """Expected case: _schedule_next_move stores the returned after id in _move_after_id."""
+
+    game = _make_game()
+
+    game._schedule_next_move()
+    first_id = game._move_after_id
+
+    game._schedule_next_move()
+    second_id = game._move_after_id
+
+    assert first_id != second_id
+    assert first_id == "after_1"
+    assert second_id == "after_2"
+
+
+def test_snake_game_cancel_pending_move_cancels_when_id_exists() -> None:
+    """Expected case: _cancel_pending_move calls after_cancel and clears _move_after_id."""
+
+    game = _make_game()
+    game._schedule_next_move()
+    aid = game._move_after_id
+
+    game._cancel_pending_move()
+
+    assert game.root.after_cancel_calls == [aid]
+    assert game._move_after_id is None
+
+
+def test_snake_game_cancel_pending_move_noop_when_id_none() -> None:
+    """Edge case: _cancel_pending_move does nothing when _move_after_id is None."""
+
+    game = _make_game()
+    game._move_after_id = None
+
+    game._cancel_pending_move()
+
+    assert game.root.after_cancel_calls == []
+
+
+def test_snake_game_cancel_pending_move_noop_when_attr_missing() -> None:
+    """Edge case: _cancel_pending_move no-op when _move_after_id attribute does not exist."""
+
+    game = _make_game()
+    # _make_game does not set _move_after_id; getattr returns None, no after_cancel called
+    game._cancel_pending_move()
+
+    assert game.root.after_cancel_calls == []
+
+
+def test_snake_game_move_snake_uses_schedule_next_move(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Expected case: move_snake uses _schedule_next_move for all scheduling paths."""
+
+    game = _make_game()
+    game.game_over = True
+
+    schedule_calls: list[None] = []
+
+    def _schedule_stub() -> None:
+        schedule_calls.append(None)
+
+    monkeypatch.setattr(game, "_schedule_next_move", _schedule_stub)
+    monkeypatch.setattr(game, "draw", lambda: None)
+
+    game.move_snake()
+
+    assert len(schedule_calls) == 1
+
+
+def test_snake_game_cancel_pending_move_idempotent_when_already_cleared() -> None:
+    """Edge case: second _cancel_pending_move after first clear is a safe no-op."""
+
+    game = _make_game()
+    game._schedule_next_move()
+    game._cancel_pending_move()
+    assert game._move_after_id is None
+    assert len(game.root.after_cancel_calls) == 1
+
+    game._cancel_pending_move()
+
+    assert len(game.root.after_cancel_calls) == 1
 
 
 def test_snake_game_bind_keys_binds_expected_sequences() -> None:
@@ -982,17 +1139,17 @@ def test_snake_game_move_snake_self_collision_sets_game_over(
     assert saved == [20]
 
 
-def test_snake_game_move_snake_food_collision_increases_score_and_speedups(
+def test_snake_game_move_snake_food_collision_increases_score_and_does_not_change_speed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Expected case: eating food grows snake, updates score, spawns new food, and can speed up."""
+    """Expected case: eating food grows snake, updates score, and spawns new food without changing speed."""
 
     game = _make_game()
     game.snake = [(0, 0), (1, 0)]
     game.direction = "Right"
     game.next_direction = "Right"
 
-    # Force a speed-up on this eat: score goes from 20 -> 30.
+    # Score goes from 20 -> 30.
     game.score = 20
     game.high_score = 0
 
@@ -1022,7 +1179,7 @@ def test_snake_game_move_snake_food_collision_increases_score_and_speedups(
     assert saved == [30]
     assert spawned["count"] == 1
     assert len(game.snake) == 3, "snake should grow when eating"
-    assert game.game_speed < old_speed
+    assert game.game_speed == old_speed
 
 
 def test_snake_game_move_snake_normal_move_pops_tail(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1057,3 +1214,5 @@ def test_snake_game_move_snake_updates_direction_from_next_direction(
     game.move_snake()
 
     assert game.direction == "Down"
+
+
