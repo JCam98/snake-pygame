@@ -36,6 +36,8 @@ To offer a single-file core game that works out of the box with the standard lib
 
 ## Tech stack
 
+Tested on MacOS with Apple Silicon (ARM64). Compatibility with other platforms is not guaranteed.
+
 | Layer        | Technology |
 |-------------|------------|
 | Language    | Python 3   |
