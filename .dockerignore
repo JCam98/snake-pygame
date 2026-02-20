@@ -1,0 +1,12 @@
+# Exclude test artifacts from the production image.
+test/
+
+# Exclude Docker GUI launch script (runs on host, not in container).
+launch-container/
+.git/
+.gitignore
+.pytest_cache/
+__pycache__/
+*.pyc
+.DS_Store
+*.md

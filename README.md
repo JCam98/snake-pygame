@@ -96,6 +96,53 @@ python snake_game.py
 
 ---
 
+## Running with Docker
+
+### Displaying the GUI
+
+To see and interact with the game window, forward the host display to the container.
+
+#### MacOS (Apple Silicon / ARM64) – XQuartz
+
+1. **Install XQuartz** – [xquartz.org](https://www.xquartz.org/) (if not already installed).
+2. **Restart** the Mac after installing XQuartz.
+3. **Start XQuartz** – open XQuartz from Applications → Utilities. Keep it running (you can minimize the XQuartz window).
+4. **Allow network connections** – XQuartz menu → Settings → Security → enable *Allow connections from network clients*.
+5. **Restart XQuartz** – after enabling network clients (step 4), fully quit XQuartz (Cmd+Q) and start it again so the change takes effect.
+6. **Run the container** – either use the convenience script or run docker directly:
+   ```bash
+   # Convenience script (allows X11 connections and launches the container)
+   bash launch-container/launch.sh
+
+   # Or run docker directly:
+   bash
+   export DISPLAY=:0
+   xhost +
+   docker run --rm -e DISPLAY=host.docker.internal:0 -e SDL_VIDEODRIVER=x11 -e SDL_AUDIODRIVER=dummy -e SNAKE_DEMO_SECONDS=0 \
+  jcam989/snake-pygame:0.1.1-arm64
+   ```
+
+The game window should appear in XQuartz. Focus the XQuartz window and use the arrow keys to play.
+
+**If the window still does not appear:**
+
+- Run `xhost +` to allow all connections (less secure, but useful for testing). Then run the `docker run` command again.
+- Try using your Mac’s IP instead of `host.docker.internal`:
+  ```bash
+  export MAC_IP=$(ipconfig getifaddr en0 2>/dev/null || echo "127.0.0.1")
+  docker run --rm -e DISPLAY=${MAC_IP}:0 -e SDL_VIDEODRIVER=x11 -e SDL_AUDIODRIVER=dummy -e SNAKE_DEMO_SECONDS=0 \
+  jcam989/snake-pygame:0.1.1-arm64
+  ```
+- Confirm XQuartz is listening: XQuartz → Preferences → Security → *Allow connections from network clients* must be enabled, and XQuartz must be restarted after changing it.
+
+#### Environment variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `SNAKE_DEMO_SECONDS` | `5` | Run for N seconds then exit; use `0` to run until the window is closed. |
+
+---
+
 ## Project structure
 
 ```
@@ -105,14 +152,17 @@ snake-pygame/
 ├── Dockerfile
 ├── conf/
 │   └── requirements.txt   # Optional deps: pygame, Pillow
+├── launch-container/
+│   └── launch.sh  # Allow X11 connections and launch container (excluded from image)
 ├── scripts/
-│   ├── run_snake.sh       # Launcher (prefers pythonw on macOS)
-│   └── run_tests.sh       # Test runner
+│   ├── run_snake.sh         # Launcher (prefers pythonw on macOS)
+│   └── docker-entrypoint.sh # Docker entrypoint (supports SNAKE_DEMO_SECONDS)
 ├── src/
 │   ├── snake_game.py           # Main game (GUI, logic, optional audio/image)
 │   └── .snake_background.jpg   # Bundled background image (loaded when Pillow available)
 └── test/
-    └── test_snake_game.py # Unit tests
+    ├── run_tests.sh         # Test runner (excluded from Docker image)
+    └── test_snake_game.py   # Unit tests
 ```
 
 At runtime the game may create **inside `src/`** (same directory as `snake_game.py`):
